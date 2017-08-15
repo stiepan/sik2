@@ -1,0 +1,7 @@
+
+*.[oa]
+*.swp
+*.idea
+cmake-build-debug
+siktacka_server
+siktacka_client
