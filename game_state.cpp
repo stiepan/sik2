@@ -3,11 +3,6 @@
 
 Generator r(0);
 
-size_t Hash::operator()(Position const &p) const
-{
-    return std::get<0>(p) * TWOTO16 + std::get<1>(p);
-}
-
 GameState::GameState(uint32_t seed)
         : no_connected{0}, no_eager{0}, no_ready{0}, the_eager_names_length{0},
           round{Round{}}

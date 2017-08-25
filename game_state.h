@@ -7,16 +7,38 @@
 #include <unordered_set>
 #include <ctime>
 #include <tuple>
-#include <netinet/in.h>
+#include <vector>
+#include <queue>
+#include "utils.h"
 #include "generator.h"
 
 using Position = std::tuple<uint32_t, uint32_t>;
+using PendingPlayer = std::tuple<size_t, uint64_t>;
 
-struct Hash {
-    size_t operator()(Position const &p) const;
+template<typename ...IntegerTypes>
+struct HashTuple {
+    template <uint64_t c, uint64_t... consts>
+    struct Hash {
+        static size_t constexpr ith = HashTuple<IntegerTypes...>::Hash<consts...>::ith + 1;
+        static size_t sum(std::tuple<IntegerTypes...> const &p) {
+            return c * std::get<ith>(p) + HashTuple<IntegerTypes...>::Hash<consts...>::sum(p);
+        }
+        size_t operator()(std::tuple<IntegerTypes...> const &p) const {
+           return sum(p);
+        }
+    };
+    template <uint64_t c>
+    struct Hash<c> {
+        static size_t constexpr ith = 0;
+        static size_t sum(std::tuple<IntegerTypes...> const &p) {
+            return c * std::get<ith>(p);
+        }
+    };
 };
 
+
 uint32_t const TWOTO16 = 65536;
+uint64_t const TWOTO32 = 4294967296L;
 uint32_t const MAX_PLAYERS = 42;
 extern Generator r;
 
@@ -41,7 +63,7 @@ class ActiveRound : public Round {
     struct Board {
         uint32_t const game_speed, turning_speed;
         uint32_t const maxx, maxy;
-        std::unordered_set<Position, Hash> taken_pxls;
+        std::unordered_set<Position, HashTuple<uint32_t, uint32_t>::Hash<TWOTO16, 1>> taken_pxls;
 
         Board(uint32_t, uint32_t, uint32_t, uint32_t);
     } board;
@@ -62,17 +84,16 @@ public:
     ActiveRound(uint32_t gs, uint32_t ts, uint32_t mx, uint32_t my);
 
     /* Events generators */
-    /*void new_game();
+    void new_game();
     void game_over();
     void pixel();
     void player_eliminated();
     void event(Snake &s); //adds appropriate event taking into account position and game state
-    void move(Snake &s);*/
+    void move(Snake &s);
 };
 
 
 struct Player {
-    bool in_use; //if false instance serves as free slot for incoming connections
     bool lurking; //if true player doesn't take part in round
     std::string name; //if empty player will lurk in any round
     uint32_t turn, expected_no;
@@ -82,6 +103,7 @@ struct Player {
     /* socket address and session_id identifies player over the net */
     sockaddr_storage sockaddr;
     uint64_t session_id;
+    uint64_t slot_uses;
 };
 
 class GameState {
@@ -92,9 +114,14 @@ class GameState {
     size_t no_ready;
     uint32_t the_eager_names_length;
 
+    /* Sending queue */
+    std::queue<PendingPlayer> pending;
+    std::unordered_set<PendingPlayer, HashTuple<size_t, uint64_t>::Hash<TWOTO32, 1>> pending_set;
+    bool head_in_progress;
+    size_t head_expected_no;
+
     /* Round */
     Round round;
-
 
 public:
     GameState(uint32_t seed);

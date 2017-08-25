@@ -8,7 +8,7 @@ all: $(ALL)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 siktacka_server: server.o utils.o game_state.o generator.o
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lrt
 
 .PHONY: clean
 
