@@ -100,7 +100,6 @@ bool disarm_timer(timer_t timer, itimerspec &old)
     if (timer_settime(timer, 0, &its, &old) == -1) {
         return false;
     }
-    std::cout << "disarm " << old.it_interval.tv_nsec << " " << old.it_interval.tv_sec << std::endl;
     return true;
 }
 
@@ -108,7 +107,6 @@ bool resume_timer(timer_t timer, itimerspec &resume)
 {
     resume.it_value.tv_sec = resume.it_interval.tv_sec;
     resume.it_value.tv_nsec = resume.it_interval.tv_nsec;
-    std::cout << "resume " << resume.it_interval.tv_nsec << " " << resume.it_interval.tv_sec << std::endl;
     if (timer_settime(timer, 0, &resume, NULL) == -1) {
         return false;
     }

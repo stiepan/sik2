@@ -4,52 +4,82 @@
 
 namespace Event {
 
+    template<typename IntegerType>
+    std::string serialize(IntegerType n)
+    {
+        IntegerType hn = bswap(n);
+        return std::string(reinterpret_cast<char *>(&hn), sizeof(hn));
+    }
+    char serialize(char);
+    std::string serialize(std::string);
+
+    void serialize_args(std::stringstream &ss);
+
+    template<typename Type, typename ...Types>
+    void serialize_args(std::stringstream &ss, Type &arg, Types &...args) {
+        ss << serialize(arg);
+        serialize_args(ss, args...);
+    }
+
     template<typename ...Types>
-    std::string parse(Types ...args) {
+    std::string serialize(Types &...args) {
         std::stringstream ss;
-        for (auto &arg : {args...}) {
-            ss << parse(arg);
-        }
+        serialize_args(ss, args...);
         return ss.str();
     }
 
     template<typename IntegerType>
-    std::string parse(IntegerType n)
+    IntegerType parse(char const *str)
     {
-        IntegerType hn = htonT(n);
-        return std::string(reinterpret_cast<char *>(&hn), sizeof(hn));
+        IntegerType n = *reinterpret_cast<IntegerType const *>(str);
+        return bswap(n);
     }
 
-    char parse(char);
-    std::string parse(std::string);
+    struct SerializableEvent {
+        virtual std::string serialize() = 0;
+    };
 
-    struct NewGame {
+    template <char t>
+    struct EventType {
         char type;
+        EventType() : type{t} {}
+    };
+
+    /* Server to client events */
+    struct NewGame : public EventType<0>, public SerializableEvent {
         uint32_t maxx, maxy;
         std::string player_names;
 
-        std::string parse();
+        std::string serialize();
     };
 
-    struct Pixel {
-        char type;
+    struct Pixel : public EventType<1>, public SerializableEvent {
         char player_number;
         uint32_t x, y;
 
-        std::string parse();
+        std::string serialize();
     };
 
-    struct PlayerEliminated {
-        char type;
+    struct PlayerEliminated : public EventType<2>, public SerializableEvent {
         char player_number;
 
-        std::string parse();
+        std::string serialize();
     };
 
-    struct GameOver {
-        char type;
+    struct GameOver : public EventType<3>, public SerializableEvent {
 
-        std::string parse();
+        std::string serialize();
+    };
+
+    /* Client to server events */
+    struct ClientEvent : public SerializableEvent {
+        uint64_t session_id;
+        int8_t turn_direction;
+        uint32_t next_expected_event_no;
+        std::string player_name;
+
+        std::string serialize();
+        bool parse(std::string const &);
     };
 }
 

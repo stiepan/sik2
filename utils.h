@@ -19,6 +19,7 @@
 #include <netdb.h>
 
 uint32_t const NANOSPERS = 1000000000;
+uint32_t const MAX_DATAGRAM_SIZE = 512;
 
 /* Parsing and validation */
 
@@ -30,7 +31,7 @@ public:
 
 // https://stackoverflow.com/questions/809902/64-bit-ntohl-in-c
 template <typename T>
-constexpr T htonT (T value, char* ptr=0)
+constexpr T bswap (T value, char* ptr=0)
 {
     return
 #if __BYTE_ORDER == __LITTLE_ENDIAN

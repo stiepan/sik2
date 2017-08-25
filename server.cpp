@@ -138,9 +138,12 @@ int main(int argc, char *argv[])
         std::cerr << "Couldn't change signal handling" << std::endl;
     }
 
+    /* Prepare timer */
     uint64_t timeout = NANOSPERS / gspeed;
     try {
         create_timer(registered_clock, timeout, timer_handler);
+        disarm_timer(registered_clock, clock_interval);
+        clock_interrupt = false;
     }
     catch (UtilsError const &e) {
         std::cerr << e.what();
@@ -156,40 +159,12 @@ int main(int argc, char *argv[])
     pollsocket.fd = sock.fd;
     pollsocket.events = POLLIN;
 
-    struct timeval tv;
-
-    gettimeofday(&tv, NULL);
-
-    unsigned long long millisecondsSinceEpoch =
-            (unsigned long long)(tv.tv_sec) * 1000 +
-            (unsigned long long)(tv.tv_usec) / 1000;
-
-    int counter = 0;
-
-    disarm_timer(registered_clock, clock_interval);
+    GameState gs{seed};
 
     while (!finish) {
         pollsocket.revents = 0;
-        int ret = poll(&pollsocket, 1, 3000);
-
-        std::cout << "ddd " << clock_interrupt << " " << ret << std::endl;
-        if (clock_interrupt) {
-            ++counter;
-            gettimeofday(&tv, NULL);
-            clock_interrupt = false;
-            if (counter % 1000 == 0) {
-                disarm_timer(registered_clock, clock_interval);
-            }
-        }
-        else {
-            resume_timer(registered_clock, clock_interval);
-        }
+        int ret = poll(&pollsocket, 1, -1);
     }
 
-    unsigned long long millisecondsSinceEpoch1 =
-            (unsigned long long)(tv.tv_sec) * 1000 +
-            (unsigned long long)(tv.tv_usec) / 1000;
-
-    std::cout << millisecondsSinceEpoch1 - millisecondsSinceEpoch << " " << counter << std::endl;
     return 0;
 }

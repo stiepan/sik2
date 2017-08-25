@@ -7,9 +7,11 @@
 #include <unordered_set>
 #include <ctime>
 #include <tuple>
-#include <vector>
 #include <queue>
+#include <cmath>
+#include <zlib.h>
 #include "utils.h"
+#include "events.h"
 #include "generator.h"
 
 using Position = std::tuple<uint32_t, uint32_t>;
@@ -39,7 +41,7 @@ struct HashTuple {
 
 uint32_t const TWOTO16 = 65536;
 uint64_t const TWOTO32 = 4294967296L;
-uint32_t const MAX_PLAYERS = 42;
+size_t const MAX_PLAYERS = 42;
 extern Generator r;
 
 class Round {
@@ -50,13 +52,13 @@ public:
 class ActiveRound : public Round {
     struct Board;
     struct Snake {
-        bool active, eliminated;
+        bool eliminated;
         double x, y; // current position on board
         uint32_t direction; //current direction snake will move in
         int32_t last_turn_direction; //last valid turn_direction:{-1,0,1} submitted by player
+        std::string name; //associated player name
 
-        Snake();
-        Snake(int32_t, Board const &);
+        Snake(std::string name, int32_t, Board const &);
         Position position();
     };
 
@@ -71,25 +73,30 @@ class ActiveRound : public Round {
     uint32_t const game_id;
 
     /* Snakes */
-    Snake snake[MAX_PLAYERS];
+    std::vector<Snake> snakes;
+    size_t eliminated;
 
     /* History */
+    bool recent_events, round_finished;
     std::vector<char> events_history;
     std::vector<size_t> events_positions;
-
-    /* Schedule */
-    time_t last_cycle_time;
 
 public:
     ActiveRound(uint32_t gs, uint32_t ts, uint32_t mx, uint32_t my);
 
+    bool recent();
+    bool finished();
+    std::vector<char> const &history();
+    std::vector<size_t> const &history_indx();
+
     /* Events generators */
+    void event(Event::SerializableEvent &e);
     void new_game();
     void game_over();
-    void pixel();
-    void player_eliminated();
-    void event(Snake &s); //adds appropriate event taking into account position and game state
-    void move(Snake &s);
+    void pixel(Snake &s, size_t player);
+    void player_eliminated(size_t player);
+    void move(Snake &s, size_t player);
+    void cycle();
 };
 
 
@@ -108,11 +115,10 @@ struct Player {
 
 class GameState {
     /* Players */
-    Player players[MAX_PLAYERS];
+    std::vector<Player> players;
     size_t no_connected;
     size_t no_eager;
     size_t no_ready;
-    uint32_t the_eager_names_length;
 
     /* Sending queue */
     std::queue<PendingPlayer> pending;
