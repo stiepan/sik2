@@ -1,5 +1,31 @@
 #include "utils.h"
 
+// inspired by https://opensource.apple.com/source/postfix/postfix-197/postfix/src/util/sock_addr.c
+bool operator==(sockaddr_storage const &a1, sockaddr_storage const &a2)
+{
+    if (a1.ss_family != a2.ss_family) {
+        return false;
+    }
+    switch (a1.ss_family) {
+        case AF_INET: {
+            auto *pa1 = reinterpret_cast<sockaddr_in const *>(&a1);
+            auto *pa2 = reinterpret_cast<sockaddr_in const *>(&a2);
+            return pa1->sin_port == pa2->sin_port && pa1->sin_addr.s_addr == pa2->sin_addr.s_addr;
+        }
+        case AF_INET6: {
+            auto *pa1 = reinterpret_cast<sockaddr_in6 const *>(&a1);
+            auto *pa2 = reinterpret_cast<sockaddr_in6 const *>(&a2);
+            return pa1->sin6_port == pa2->sin6_port && (memcmp(
+                    reinterpret_cast<char const *>(&pa1->sin6_addr.s6_addr),
+                    reinterpret_cast<char const *>(&pa2->sin6_addr.s6_addr),
+                    sizeof(pa1->sin6_addr.s6_addr)) == 0);
+        }
+        default:
+            std::cerr << "Unknown connection type" << std::endl;
+            return true;
+    }
+}
+
 UtilsError::UtilsError(char const * str) : std::runtime_error(str) {}
 
 uint32_t str2uint32_t(std::string str)
@@ -112,3 +138,12 @@ bool resume_timer(timer_t timer, itimerspec &resume)
     }
     return true;
 }
+
+uint64_t milliseconds_since_epoch()
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return UINT64_C(1000) * tv.tv_sec + tv.tv_usec / UINT64_C(1000);
+}
+
+

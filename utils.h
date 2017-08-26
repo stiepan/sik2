@@ -19,7 +19,10 @@
 #include <netdb.h>
 
 uint32_t const NANOSPERS = 1000000000;
-uint32_t const MAX_DATAGRAM_SIZE = 512;
+size_t const MAX_FROM_SERVER_DATAGRAM_SIZE = 512;
+size_t const MAX_FROM_CLIENT_DATAGRAM_SIZE = 77;
+
+bool operator==(sockaddr_storage const &a1, sockaddr_storage const &a2);
 
 /* Parsing and validation */
 
@@ -66,5 +69,7 @@ struct Socket {
 void create_timer(timer_t &timer, uint64_t nanosecs, void (*handler)(int, siginfo_t *, void *));
 bool disarm_timer(timer_t timer, itimerspec &old);
 bool resume_timer(timer_t timer, itimerspec &resume);
+
+uint64_t milliseconds_since_epoch();
 
 #endif //II_UTILS_H

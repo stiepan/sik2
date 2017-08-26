@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* TODO Purpose specific validation of arguments */
+    /* Purpose specific validation of arguments */
 
     if (!is_valid_port(port)) {
         std::cerr << "Incorrect port number" << std::endl;
@@ -80,12 +80,6 @@ int main(int argc, char *argv[])
     }
 
     /* Connections */
-    //int numbytes;
-   // struct sockaddr_storage their_addr;
-    //char buf[MAXBUFLEN];
-    //socklen_t addr_len;
-    //char s[INET6_ADDRSTRLEN];
-
     struct addrinfo hints = {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_DGRAM;
@@ -151,19 +145,43 @@ int main(int argc, char *argv[])
     }
 
     /* Actual communication kicks off */
-    size_t rcv_len;
-    struct sockaddr_in client_addr;
-    socklen_t rcva_len = (socklen_t) sizeof(client_addr);
-
     pollfd pollsocket;
     pollsocket.fd = sock.fd;
-    pollsocket.events = POLLIN;
+
+    sockaddr_storage client_addr;
+    socklen_t addr_len = sizeof(client_addr);
 
     GameState gs{seed};
+    bool want_to_write = false;
+    size_t max_datagram_size = MAX_FROM_CLIENT_DATAGRAM_SIZE + 1;
 
     while (!finish) {
+        pollsocket.events = (!want_to_write)? POLLIN : (POLLIN | POLLOUT);
         pollsocket.revents = 0;
         int ret = poll(&pollsocket, 1, -1);
+        if (ret <= 0 && !clock_interrupt) {
+            continue;
+        }
+        if (pollsocket.revents & POLLIN) {
+            uint64_t rec_time = milliseconds_since_epoch();
+            std::string buffer(max_datagram_size, '\0');
+            size_t len = recvfrom(
+                    sock.fd, &buffer[0], max_datagram_size, 0,
+                    reinterpret_cast<sockaddr *>(&client_addr), &addr_len);
+            // simply ignore incorrect messages or errors
+            if (len > 0 && len <= MAX_FROM_CLIENT_DATAGRAM_SIZE) {
+                buffer.resize(len);
+                gs.got_message(buffer, client_addr, rec_time);
+            }
+        }
+        if (std::get<1>(gs.has_active_round()) && clock_interrupt) {
+            gs.cycle();
+            clock_interrupt = false;
+        }
+        if (gs.want_to_write()) {
+            // try to write
+            // set want_to_write flag accordingly to whether something is still pending
+        }
     }
 
     return 0;
