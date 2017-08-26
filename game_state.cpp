@@ -4,19 +4,16 @@
 
 Generator r(0);
 
-GameState::GameState(uint32_t seed)
+GameState::GameState(uint32_t seed, uint32_t gs, uint32_t ts, uint32_t mx, uint32_t my)
+        : inner_counter{0}, head_in_progress{false}, head_expected_no{0}, board{gs, ts, mx, my}
 {
     r = Generator(seed);
 }
 
 GameProgress Round::is_active()
 {
-    return GameProgress{false, false};
-}
-
-GameProgress ActiveRound::is_active()
-{
-    return GameProgress{true, !round_finished};
+    bool activated = snakes.size() > 0 ;
+    return GameProgress{activated, activated && !round_finished};
 }
 
 GameProgress GameState::has_active_round()
@@ -31,7 +28,11 @@ bool GameState::want_to_write()
 
 void GameState::cycle()
 {
-
+    round.recent_events = false;
+    round.cycle();
+    if (round.recent_events) {
+        notify_players();
+    }
 }
 
 void GameState::got_message(std::string &buffer, sockaddr_storage &addr, uint64_t rec_time)
@@ -61,6 +62,7 @@ void GameState::disconnect_inactive(uint64_t threshold)
 
 void GameState::disconnect_player(size_t id)
 {
+    reserved_names.erase(players[id].name);
     if (id < players.size() - 1) {
         std::swap(players[id], players[players.size() - 1]);
     }
@@ -89,6 +91,9 @@ void GameState::connect_player(
     if (players.size() >= MAX_PLAYERS) {
         return;
     }
+    if (e.player_name.length() && !reserved_names.insert(e.player_name).second) {
+        return;
+    }
     players.push_back(Player{e, addr, rec_time, inner_counter++});
     std::cerr << "Connected new player" << std::endl;
     notify_player(players[players.size() - 1]);
@@ -111,10 +116,10 @@ void GameState::connect_or_update_player(
         } else {
             p.last_contact = rec_time;
             p.expected_no = e.next_expected_event_no;
+            p.last_turn_direction = e.turn_direction;
             p.pressed_arrow |= (e.turn_direction != 0);
             if (!p.lurking && std::get<1>(round.is_active())) {
-                ActiveRound &around = dynamic_cast<ActiveRound&>(round);
-                around.direction(p.snake_id, e.turn_direction);
+                round.direction(p.snake_id, e.turn_direction);
             }
             notify_player(p);
             return;
@@ -129,13 +134,14 @@ void GameState::update_game_state_on_player_message()
     if (std::get<1>(round.is_active())) {
         return;
     }
-    ActiveRound &around = dynamic_cast<ActiveRound&>(round);
-    if (around.game_over_raised) {
-        around.game_over_raised = false;
-        for (auto &p : players) {
-            p.pressed_arrow = false;
+    //with the conditions above it means some round has finished recently
+    if (std::get<0>(round.is_active())) {
+        if (round.game_over_raised) {
+            round.game_over_raised = false;
+            for (auto &p : players) {
+                p.pressed_arrow = false;
+            }
         }
-        return;
     }
     size_t counter = 0;
     for (auto &p : players) {
@@ -152,43 +158,63 @@ void GameState::update_game_state_on_player_message()
 
 void GameState::start_new_round()
 {
-    
+    std::vector<EagerPlayer> eager;
+    size_t i = 0;
+    for (auto &p : players) {
+        if (p.name.length() && p.pressed_arrow) {
+            eager.push_back(EagerPlayer{p.name, p.last_turn_direction, i});
+        }
+        ++i;
+    }
+    std::sort(eager.begin(), eager.end());
+    for (size_t j = 0; j < eager.size(); ++j) {
+        Player &p = players[std::get<2>(eager[j])];
+        p.snake_id = j;
+        p.lurking = false;
+    }
+    round = Round{board, eager};
 }
 
 Player::Player(Event::ClientEvent const &e, sockaddr_storage &addr, uint64_t rec_time,
                uint64_t inner_id)
-        : lurking{true}, pressed_arrow{e.turn_direction != 0}, name{e.player_name}, inner_id{inner_id},
-          expected_no{e.next_expected_event_no}, last_contact{rec_time}, sockaddr{addr},
-          session_id{e.session_id} {}
+        : lurking{true}, pressed_arrow{e.turn_direction != 0}, last_turn_direction{e.turn_direction},
+          name{e.player_name}, inner_id{inner_id}, expected_no{e.next_expected_event_no},
+          last_contact{rec_time}, sockaddr{addr}, session_id{e.session_id} {}
 
 Player::Player() = default;
 
-Round::~Round() = default;
+Round::Round() = default;
 
-ActiveRound::ActiveRound(uint32_t gs, uint32_t ts, uint32_t mx, uint32_t my)
-        : board{gs, ts, mx, my}, game_id{r.next()} {}
+Round::Round(Board &board, std::vector<EagerPlayer> &eager)
+        : board{board}, game_id{r.next()}, eliminated{0}, round_finished{false}, recent_events{false},
+          game_over_raised{false}
+{
+    for (auto &ep : eager) {
+        snakes.push_back(Snake{std::get<0>(ep), std::get<1>(ep), board});
+    }
+    new_game();
+    size_t i = 0;
+    for (auto &s : snakes) {
+        register_move(s.position(), s, i++);
+    }
+}
 
-void ActiveRound::direction(size_t snake_id, uint32_t direction)
+void Round::direction(size_t snake_id, uint32_t direction)
 {
     snakes[snake_id].last_turn_direction = direction;
 }
 
-bool ActiveRound::recent()
-{
-    return recent_events;
-}
-
-std::vector<char> const &ActiveRound::history()
+std::vector<char> const &Round::history()
 {
     return events_history;
 }
 
-std::vector<size_t> const &ActiveRound::history_indx()
+std::vector<size_t> const &Round::history_indx()
 {
     return events_positions;
 }
 
-void ActiveRound::event(Event::SerializableEvent &e)
+void Round::event(Event::SerializableEvent &e)
 {
     recent_events = true;
     std::string es = e.serialize();
@@ -202,7 +228,7 @@ void ActiveRound::event(Event::SerializableEvent &e)
     events_history.insert(events_history.end(), s.begin(), s.end());
 }
 
-void ActiveRound::new_game()
+void Round::new_game()
 {
     Event::NewGame e;
     e.maxx = board.maxx;
@@ -215,13 +241,13 @@ void ActiveRound::new_game()
     event(e);
 }
 
-void ActiveRound::game_over()
+void Round::game_over()
 {
     Event::GameOver e;
     event(e);
 }
 
-void ActiveRound::pixel(Snake &s, size_t player)
+void Round::pixel(Snake &s, size_t player)
 {
     Event::Pixel e;
     Position p = s.position();
@@ -231,14 +257,33 @@ void ActiveRound::pixel(Snake &s, size_t player)
     event(e);
 }
 
-void ActiveRound::player_eliminated(size_t player)
+void Round::player_eliminated(size_t player)
 {
     Event::PlayerEliminated e;
     e.player_number = player;
     event(e);
 }
 
-void ActiveRound::move(Snake &s, size_t player)
+
+void Round::register_move(Position const &new_position, Snake &s, size_t player)
+{
+    if (std::get<0>(new_position) < board.maxx && std::get<1>(new_position) < board.maxy &&
+            board.taken_pxls.insert(new_position).second) {
+        pixel(s, player);
+    }
+    else {
+        player_eliminated(player);
+        s.eliminated = true;
+        ++eliminated;
+        if (snakes.size() - eliminated <= 1) {
+            game_over();
+            round_finished = true;
+            game_over_raised = true;
+        }
+    }
+}
+
+void Round::move(Snake &s, size_t player)
 {
     auto old_position = s.position();
     s.direction += s.last_turn_direction * board.turning_speed;
@@ -247,24 +292,11 @@ void ActiveRound::move(Snake &s, size_t player)
     s.y += cos(M_PI * s.direction / 180.);
     auto new_position = s.position();
     if (old_position != new_position) {
-        auto inserted = board.taken_pxls.insert(new_position);
-        if (inserted.second) {
-            pixel(s, player);
-        }
-        else {
-            player_eliminated(player);
-            s.eliminated = true;
-            ++eliminated;
-            if (snakes.size() - eliminated <= 1) {
-                game_over();
-                round_finished = true;
-                game_over_raised = true;
-            }
-        }
+        register_move(new_position, s, player);
     }
 }
 
-void ActiveRound::cycle()
+void Round::cycle()
 {
     size_t player = 0;
     for (auto &snake: snakes) {
@@ -272,13 +304,18 @@ void ActiveRound::cycle()
     }
 }
 
-ActiveRound::Board::Board(uint32_t gs, uint32_t ts, uint32_t mx, uint32_t my)
+Board::Board() = default;
+
+Board::Board(uint32_t gs, uint32_t ts, uint32_t mx, uint32_t my)
         : game_speed{gs}, turning_speed{ts}, maxx{mx}, maxy{my} {}
 
-ActiveRound::Snake::Snake(std::string name, int32_t direction, Board const &board)
-        : x{r.next() % board.maxx + 0.5}, y{r.next() % board.maxy + 0.5},
-          direction{r.next() % 360}, last_turn_direction{direction}, name{name} {};
+Round::Snake::Snake(std::string name, int32_t direction, Board const &board)
+        : eliminated{false}, x{r.next() % board.maxx + 0.5}, y{r.next() % board.maxy + 0.5},
+          direction{r.next() % 360}, last_turn_direction{direction}, name{name}
+{
 
-Position ActiveRound::Snake::position() {
+};
+
+Position Round::Snake::position() {
     return Position{static_cast<uint32_t>(x), static_cast<uint32_t>(y)};
 }

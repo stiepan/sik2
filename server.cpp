@@ -132,6 +132,7 @@ int main(int argc, char *argv[])
         std::cerr << "Couldn't change signal handling" << std::endl;
     }
 
+    bool timer_active = false;
     /* Prepare timer */
     uint64_t timeout = NANOSPERS / gspeed;
     try {
@@ -151,7 +152,7 @@ int main(int argc, char *argv[])
     sockaddr_storage client_addr;
     socklen_t addr_len = sizeof(client_addr);
 
-    GameState gs{seed};
+    GameState gs{seed, gspeed, tspeed, width, height};
     bool want_to_write = false;
     size_t max_datagram_size = MAX_FROM_CLIENT_DATAGRAM_SIZE + 1;
 
@@ -173,9 +174,19 @@ int main(int argc, char *argv[])
                 buffer.resize(len);
                 gs.got_message(buffer, client_addr, rec_time);
             }
+            // if new round started as a consequence of player's move
+            if (std::get<1>(gs.has_active_round()) && !timer_active) {
+                timer_active = true;
+                resume_timer(registered_clock, clock_interval);
+            }
         }
         if (std::get<1>(gs.has_active_round()) && clock_interrupt) {
             gs.cycle();
+            // if round has finished within last cycle
+            if (!std::get<1>(gs.has_active_round())) {
+                disarm_timer(registered_clock, clock_interval);
+                timer_active = false;
+            }
             clock_interrupt = false;
         }
         if (gs.want_to_write()) {
