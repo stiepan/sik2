@@ -39,6 +39,7 @@ size_t GameState::next_datagram(std::string &buffer, sockaddr_storage &addr)
 {
     size_t i;
     uint64_t player_id;
+    std::cerr << "Trying to send... " << std::endl;
     bool front_removed = false;
     while (!pending_queue.empty()) {
         player_id = pending_queue.front();
@@ -56,12 +57,14 @@ size_t GameState::next_datagram(std::string &buffer, sockaddr_storage &addr)
     if (pending_queue.empty()) {
         return 0;
     }
+    std::cerr << "Got here " << players[i].expected_no << std::endl;
     if (front_removed || !head_in_progress) {
         head_in_progress = true;
         head_expected_no = players[i].expected_no;
     }
     auto &indxs = round.history_indx();
     auto &hist = round.history();
+    std::cerr << "Got ist tot here " << head_expected_no << " " << indxs.size() << std::endl;
     if (head_expected_no >= indxs.size()) {
         return 0;
     }
@@ -74,6 +77,7 @@ size_t GameState::next_datagram(std::string &buffer, sockaddr_storage &addr)
     buffer = Event::serialize(round.get_game_id());
     buffer.insert(buffer.size(), &hist[(head_expected_no == 0)? 0 : indxs[head_expected_no - 1]], mes_size);
     addr = players[i].sockaddr;
+    std::cerr << "Message to player number " << i << std::endl;
     return it - head_expected_no;
 }
 
@@ -166,6 +170,7 @@ void GameState::connect_or_update_player(
             connect_player(e, addr, rec_time);
             return;
         } else {
+            std::cerr << "Message from player number " << i << std::endl;
             p.last_contact = rec_time;
             p.expected_no = e.next_expected_event_no;
             p.last_turn_direction = e.turn_direction;
@@ -197,17 +202,18 @@ void GameState::update_game_state_on_player_message()
             }
         }
     }
-    size_t counter = 0;
+    size_t ready = 0, eager = 0;
     for (auto &p : players) {
-        if (!p.name.length() || !p.pressed_arrow) {
-            continue;
+        if (p.name.length()) {
+            ++eager;
+            if (p.pressed_arrow) {
+                ++ready;
+            }
         }
-        counter++;
-        if (counter >= REQUIRED_PLAYERS) {
-            std::cerr << "Starting new game" << std::endl;
-            start_new_round();
-            return;
-        }
+    }
+    if (ready >= REQUIRED_PLAYERS && eager == ready) {
+        std::cerr << "Starting new game" << std::endl;
+        start_new_round();
     }
 }
 
@@ -243,6 +249,7 @@ void GameState::start_new_round()
     }
     decltype(pending_queue) empty_pendign_queue;
     std::swap(pending_queue, empty_pendign_queue);
+    head_in_progress = false;
     pending.clear();
     round = Round{board, eager};
 }
@@ -377,7 +384,7 @@ void Round::cycle()
 {
     size_t player = 0;
     for (auto &snake: snakes) {
-        if (!snake.eliminated) {
+        if (!snake.eliminated && !round_finished) {
             move(snake, player);
         }
         player++;

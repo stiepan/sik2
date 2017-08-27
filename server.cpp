@@ -79,6 +79,11 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    if (tspeed >= 360) {
+        std::cerr << "Turning speed should be in [0, 360) range" << std::endl;
+        return 1;
+    }
+
     /* Connections */
     struct addrinfo hints = {};
     hints.ai_family = AF_UNSPEC;
@@ -194,11 +199,11 @@ int main(int argc, char *argv[])
             sockaddr_storage rec_addr;
             auto events_no = gs.next_datagram(buffer, rec_addr);
             if (events_no > 0) {
-                /*std::cout << "SO it begins " << events_no << ": ";
+                /*std::cerr << "SO it begins " << events_no << ": ";
                 for (auto &c : buffer) {
-                    std::cout << (uint32_t)((uint8_t)c) << " ";
+                    std::cerr << (uint32_t)((uint8_t)c) << " ";
                 }
-                std::cout << std::endl;*/
+                std::cerr << std::endl;*/
                 auto len = sendto(sock.fd, &buffer[0], buffer.size(), 0,
                         reinterpret_cast<sockaddr *>(&rec_addr), sizeof(rec_addr));
                 if (len >= 0 || (errno != EWOULDBLOCK && errno != EAGAIN)) {
