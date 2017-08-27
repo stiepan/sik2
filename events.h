@@ -10,7 +10,7 @@ namespace Event {
         IntegerType hn = bswap(n);
         return std::string(reinterpret_cast<char *>(&hn), sizeof(hn));
     }
-    char serialize(char);
+    std::string serialize(char);
     std::string serialize(std::string);
 
     void serialize_args(std::stringstream &ss);

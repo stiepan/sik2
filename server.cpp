@@ -194,10 +194,11 @@ int main(int argc, char *argv[])
             sockaddr_storage rec_addr;
             auto events_no = gs.next_datagram(buffer, rec_addr);
             if (events_no > 0) {
-                /*for (auto &c : buffer) {
+                /*std::cout << "SO it begins " << events_no << ": ";
+                for (auto &c : buffer) {
                     std::cout << (uint32_t)((uint8_t)c) << " ";
-                }*/
-                //std::cout << std::endl;
+                }
+                std::cout << std::endl;*/
                 auto len = sendto(sock.fd, &buffer[0], buffer.size(), 0,
                         reinterpret_cast<sockaddr *>(&rec_addr), sizeof(rec_addr));
                 if (len >= 0 || (errno != EWOULDBLOCK && errno != EAGAIN)) {

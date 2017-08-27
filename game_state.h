@@ -44,6 +44,7 @@ uint32_t const TWOTO16 = 65536;
 uint64_t const TWOTO32 = 4294967296L;
 size_t const MAX_PLAYERS = 42;
 uint64_t const INACTIVITY_TOLERANCE = 2000;
+uint32_t const REQUIRED_PLAYERS = 2;
 
 extern Generator r;
 
@@ -60,7 +61,7 @@ class Round {
     struct Snake {
         bool eliminated;
         double x, y; // current position on board
-        uint32_t direction; //current direction snake will move in
+        int32_t direction; //current direction snake will move in
         int32_t last_turn_direction; //last valid turn_direction:{-1,0,1} submitted by player
         std::string name; //associated player name
 

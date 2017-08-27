@@ -2,9 +2,9 @@
 
 void Event::serialize_args(std::stringstream &ss) {}
 
-char Event::serialize(char c)
+std::string Event::serialize(char c)
 {
-   return c;
+    return std::string{c};
 }
 
 std::string Event::serialize(std::string str)
@@ -34,7 +34,7 @@ std::string Event::PlayerEliminated::serialize()
 
 std::string Event::GameOver::serialize()
 {
-    return std::string{1, Event::serialize(type)};
+    return Event::serialize(type);
 }
 
 std::string Event::ClientEvent::serialize()

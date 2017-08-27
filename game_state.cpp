@@ -189,9 +189,11 @@ void GameState::update_game_state_on_player_message()
     //with the conditions above it means some round has finished recently
     if (std::get<0>(round.is_active())) {
         if (round.game_over_raised) {
+            std::cerr << "Prepare for new round" << std::endl;
             round.game_over_raised = false;
             for (auto &p : players) {
                 p.pressed_arrow = false;
+                p.lurking = true;
             }
         }
     }
@@ -201,7 +203,8 @@ void GameState::update_game_state_on_player_message()
             continue;
         }
         counter++;
-        if (counter >= 1) {
+        if (counter >= REQUIRED_PLAYERS) {
+            std::cerr << "Starting new game" << std::endl;
             start_new_round();
             return;
         }
@@ -238,6 +241,9 @@ void GameState::start_new_round()
         p.snake_id = j;
         p.lurking = false;
     }
+    decltype(pending_queue) empty_pendign_queue;
+    std::swap(pending_queue, empty_pendign_queue);
+    pending.clear();
     round = Round{board, eager};
 }
 
@@ -295,8 +301,8 @@ void Round::event(Event::SerializableEvent &e)
     uint32_t crc = crc32(0, reinterpret_cast<unsigned char *>(&s[0]), s.length());
     s.resize(s.length() + 4);
     *reinterpret_cast<uint32_t *>(&s[s.length() - 4]) = crc;
-    events_positions.push_back(events_history.size());
     events_history.insert(events_history.end(), s.begin(), s.end());
+    events_positions.push_back(events_history.size());
 }
 
 void Round::new_game()
@@ -357,10 +363,10 @@ void Round::register_move(Position const &new_position, Snake &s, size_t player)
 void Round::move(Snake &s, size_t player)
 {
     auto old_position = s.position();
-    s.direction += s.last_turn_direction * board.turning_speed;
+    s.direction += 360 + s.last_turn_direction * board.turning_speed;
     s.direction %= 360;
-    s.x += sin(M_PI * s.direction / 180.);
-    s.y += cos(M_PI * s.direction / 180.);
+    s.x += cos(M_PI * s.direction / 180.);
+    s.y += sin(M_PI * s.direction / 180.);
     auto new_position = s.position();
     if (old_position != new_position) {
         register_move(new_position, s, player);
@@ -371,7 +377,10 @@ void Round::cycle()
 {
     size_t player = 0;
     for (auto &snake: snakes) {
-        move(snake, player++);
+        if (!snake.eliminated) {
+            move(snake, player);
+        }
+        player++;
     }
 }
 
@@ -382,7 +391,8 @@ Board::Board(uint32_t gs, uint32_t ts, uint32_t mx, uint32_t my)
 
 Round::Snake::Snake(std::string name, int32_t direction, Board const &board)
         : eliminated{false}, x{r.next() % board.maxx + 0.5}, y{r.next() % board.maxy + 0.5},
-          direction{r.next() % 360}, last_turn_direction{direction}, name{name}
+          direction{static_cast<int32_t>(r.next() % 360)}, last_turn_direction{direction},
+          name{name}
 {
 
 };
