@@ -1,10 +1,20 @@
 #include <netinet/tcp.h>
+#include <poll.h>
 #include "utils.h"
 #include "events.h"
+
+uint64_t TIMEOUT_NS = 20000000;
+size_t const MAX_FROM_GUI_SIZE = 15;
 
 bool finish = false, clock_interrupt = false;
 timer_t registered_clock;
 itimerspec clock_interval;
+
+/* Game state */
+int8_t turn_direction = 0;
+uint32_t next_expected_event_no = 0;
+uint64_t session_id;
+std::string player_name;
 
 void catch_int (int sig)
 {
@@ -18,11 +28,60 @@ void timer_handler(int sig, siginfo_t *si, void *uc)
     }
 }
 
+void set_turn_direction_accordingly(std::string &m)
+{
+    if (m == "LEFT_KEY_DOWN") {
+        turn_direction = -1;
+    }
+    else if (m == "RIGHT_KEY_DOWN") {
+        turn_direction = 1;
+    }
+    else if (m == "LEFT_KEY_UP" || m == "RIGHT_KEY_UP") {
+        turn_direction = 0;
+    }
+}
+
+void process_gui_response(std::string &gbuf, size_t &ggot, size_t &rec)
+{
+    size_t i;
+    for (i = 0; i < rec; ++i) {
+        if (gbuf[ggot + i] == '\n') {
+            break;
+        }
+    }
+    if (i < rec) {
+        std::string message = gbuf.substr(0, ggot + i);
+        set_turn_direction_accordingly(message);
+        // trim new line and rewrite rest to beginning of the buffer
+        for (size_t j = 0; j < rec - i - 1; j++) {
+            gbuf[j] = gbuf[ggot + i + 1 + j];
+        }
+        ggot = rec - i - 1;
+    }
+}
+
+std::string to_server_message()
+{
+    Event::ClientEvent e;
+    e.session_id = session_id;
+    e.turn_direction = turn_direction;
+    e.next_expected_event_no = next_expected_event_no;
+    e.player_name = player_name;
+    return e.serialize();
+}
+
 int main(int argc, char *argv[])
 {
 
+    /* Set session id to microseconds elapsed since epoch  */
+    {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+
+        session_id = UINT64_C(1000000) * (tv.tv_sec) + (tv.tv_usec);
+    }
+
     /* Parsing arguments */
-    std::string player_name;
     std::string sa, sp, ga, gp;
 
     if (argc < 3 || argc > 4) {
@@ -110,6 +169,10 @@ int main(int argc, char *argv[])
                 last_error = last_err("Socket: ");
                 continue;
             }
+            if (connect(try_socket.fd, p->ai_addr, p->ai_addrlen) == -1) {
+                last_error = last_err("Connect gui: ");
+                continue;
+            }
             ssock = std::move(try_socket);
         }
 
@@ -176,10 +239,66 @@ int main(int argc, char *argv[])
         std::cerr << "Couldn't change signal handling" << std::endl;
     }
 
-    /* Communication kicks off */
-    
+    /* Timer */
+    try {
+        create_timer(registered_clock, TIMEOUT_NS, timer_handler);
+    }
+    catch (UtilsError const &e) {
+        std::cerr << e.what();
+        return 1;
+    }
 
-    /* Purpose specific validation of arguments */
+    /* Communication kicks off */
+    bool write_more_to_server = false, write_more_to_gui = false;
+    pollfd pollsocket[2];
+    pollfd &serverp = pollsocket[0];
+    pollfd &guip = pollsocket[1];
+    serverp.fd = ssock.fd;
+    guip.fd = gsock.fd;
+
+    /* Buffering */
+    std::string gbuf(MAX_FROM_GUI_SIZE, '\0');
+    size_t ggot = 0;
+
+    while(!finish) {
+        for (size_t i = 0; i < 2; i++) {
+            pollsocket[i].revents = 0;
+        }
+        serverp.events = (!write_more_to_server)? POLLIN : (POLLIN | POLLOUT);
+        guip.events = (!write_more_to_gui)? POLLIN : (POLLIN | POLLOUT);
+        int ret = poll(pollsocket, 2, -1);
+        if (ret <= 0 && !clock_interrupt) {
+            continue;
+        }
+        /* Read messages */
+        if (guip.revents & POLLIN) {
+            size_t rec;
+            if((rec = recv(gsock.fd, &gbuf[ggot], gbuf.size() - ggot, 0)) <= 0) {
+                std::cerr << "GUI disconnected" << std::endl;
+                return 1;
+            }
+            process_gui_response(gbuf, ggot, rec);
+        }
+        if (serverp.revents & POLLIN) {
+
+        }
+        if (clock_interrupt || (write_more_to_server && (serverp.revents & POLLOUT))) {
+            std::string ssbuf = to_server_message();
+            clock_interrupt = false;
+            write_more_to_server = false;
+            if (send(ssock.fd, &ssbuf[0], ssbuf.size(), 0) == -1) {
+                if (errno == EWOULDBLOCK || errno == EAGAIN) {
+                    write_more_to_server = true;
+                }
+                else {
+                    std::cerr << last_err("Socket error on sending. ") << std::endl;
+                    return 1;
+                }
+            }
+        }
+        // if messages to gui send them here
+    }
+
     return 0;
 }
 
