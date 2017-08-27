@@ -86,6 +86,7 @@ public:
 
     bool recent_events, game_over_raised;
 
+    uint32_t get_game_id();
     GameProgress is_active();
     std::vector<char> const &history();
     std::vector<size_t> const &history_indx();
@@ -142,9 +143,8 @@ class GameState {
     void notify_player(Player &p);
     void notify_players();
 
-    Board board;
-
     /* Round */
+    Board board;
     Round round;
     void start_new_round();
 
@@ -153,6 +153,8 @@ public:
     void got_message(std::string &buffer, sockaddr_storage &addr, uint64_t rec_time);
     void cycle();
     GameProgress has_active_round();
+    size_t next_datagram(std::string &buffer, sockaddr_storage &addr);
+    void mark_sent(size_t events_no);
     bool want_to_write();
 };
 #endif //II_GAME_STATE_H

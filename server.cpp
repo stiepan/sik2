@@ -190,8 +190,21 @@ int main(int argc, char *argv[])
             clock_interrupt = false;
         }
         if (gs.want_to_write()) {
-            // try to write
-            // set want_to_write flag accordingly to whether something is still pending
+            std::string buffer;
+            sockaddr_storage rec_addr;
+            auto events_no = gs.next_datagram(buffer, rec_addr);
+            if (events_no > 0) {
+                /*for (auto &c : buffer) {
+                    std::cout << (uint32_t)((uint8_t)c) << " ";
+                }*/
+                //std::cout << std::endl;
+                auto len = sendto(sock.fd, &buffer[0], buffer.size(), 0,
+                        reinterpret_cast<sockaddr *>(&rec_addr), sizeof(rec_addr));
+                if (len >= 0 || (errno != EWOULDBLOCK && errno != EAGAIN)) {
+                    gs.mark_sent(events_no);
+                }
+            }
+            want_to_write = gs.want_to_write();
         }
     }
 

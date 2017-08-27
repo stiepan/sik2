@@ -9,16 +9,16 @@ char Event::serialize(char c)
 
 std::string Event::serialize(std::string str)
 {
-    for (auto it = str.begin(); it < str.end(); ++it) {
-        if (*it < 33 || *it > 126) {
-            *it = '\0';
-        }
-    }
     return str;
 }
 
 std::string Event::NewGame::serialize()
 {
+    for (auto &c : player_names) {
+        if (c < 33 || c > 126) {
+            c = '\0';
+        }
+    }
     return Event::serialize(type, maxx, maxy, player_names);
 }
 

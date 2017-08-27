@@ -23,7 +23,7 @@ GameProgress GameState::has_active_round()
 
 bool GameState::want_to_write()
 {
-    return false;
+    return !pending_queue.empty();
 }
 
 void GameState::cycle()
@@ -32,6 +32,58 @@ void GameState::cycle()
     round.cycle();
     if (round.recent_events) {
         notify_players();
+    }
+}
+
+size_t GameState::next_datagram(std::string &buffer, sockaddr_storage &addr)
+{
+    size_t i;
+    uint64_t player_id;
+    bool front_removed = false;
+    while (!pending_queue.empty()) {
+        player_id = pending_queue.front();
+        for (i = 0; i < players.size(); i++) {
+            if (players[i].inner_id == player_id) {
+                break;
+            }
+        }
+        if (i < players.size()) {
+            break;
+        }
+        pending_queue.pop();
+        front_removed = true;
+    }
+    if (pending_queue.empty()) {
+        return 0;
+    }
+    if (front_removed || !head_in_progress) {
+        head_in_progress = true;
+        head_expected_no = players[i].expected_no;
+    }
+    auto &indxs = round.history_indx();
+    auto &hist = round.history();
+    if (head_expected_no >= indxs.size()) {
+        return 0;
+    }
+    size_t it = head_expected_no;
+    size_t mes_size = 0;
+    do {
+        mes_size += indxs[it] - ((it == 0)? 0 : indxs[it - 1]);
+        ++it;
+    } while (mes_size <= MAX_FROM_SERVER_DATAGRAM_SIZE - 4 && it < indxs.size());
+    buffer = Event::serialize(round.get_game_id());
+    buffer.insert(buffer.size(), &hist[(head_expected_no == 0)? 0 : indxs[head_expected_no - 1]], mes_size);
+    addr = players[i].sockaddr;
+    return it - head_expected_no;
+}
+
+void GameState::mark_sent(size_t events_no)
+{
+    head_expected_no += events_no;
+    if (head_expected_no >= round.history_indx().size()) {
+        head_in_progress = false;
+        pending.erase(pending_queue.front());
+        pending_queue.pop();
     }
 }
 
@@ -149,7 +201,7 @@ void GameState::update_game_state_on_player_message()
             continue;
         }
         counter++;
-        if (counter >= 2) {
+        if (counter >= 1) {
             start_new_round();
             return;
         }
@@ -167,6 +219,20 @@ void GameState::start_new_round()
         ++i;
     }
     std::sort(eager.begin(), eager.end());
+    // restrict number of players so that their names fit in single datagram
+    size_t fitting_no = 0;
+    uint32_t slen = 28; //it's overhead of additional data
+    for (auto &e : eager) {
+        slen += std::get<0>(e).length() + 1;
+        if (slen > MAX_FROM_SERVER_DATAGRAM_SIZE) {
+            break;
+        }
+        ++fitting_no;
+    }
+    if (fitting_no < eager.size()) {
+        std::cerr << "Limiting the number of players due to long names" << std::endl;
+        eager.resize(fitting_no);
+    }
     for (size_t j = 0; j < eager.size(); ++j) {
         Player &p = players[std::get<2>(eager[j])];
         p.snake_id = j;
@@ -204,6 +270,11 @@ void Round::direction(size_t snake_id, uint32_t direction)
     snakes[snake_id].last_turn_direction = direction;
 }
 
+uint32_t Round::get_game_id()
+{
+    return game_id;
+}
+
 std::vector<char> const &Round::history()
 {
     return events_history;
@@ -218,7 +289,7 @@ void Round::event(Event::SerializableEvent &e)
 {
     recent_events = true;
     std::string es = e.serialize();
-    uint32_t length = es.length() + 12;
+    uint32_t length = es.length() + 4;
     uint32_t event_no = events_positions.size();
     std::string s = Event::serialize(length, event_no, es);
     uint32_t crc = crc32(0, reinterpret_cast<unsigned char *>(&s[0]), s.length());
