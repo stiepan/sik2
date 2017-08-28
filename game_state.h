@@ -44,7 +44,6 @@ uint32_t const TWOTO16 = 65536;
 uint64_t const TWOTO32 = 4294967296L;
 size_t const MAX_PLAYERS = 42;
 uint64_t const INACTIVITY_TOLERANCE = 2000;
-uint32_t const REQUIRED_PLAYERS = 2;
 
 extern Generator r;
 

@@ -40,8 +40,10 @@ size_t GameState::next_datagram(std::string &buffer, sockaddr_storage &addr)
     size_t i;
     uint64_t player_id;
     bool front_removed = false;
+   // std::cout << "Look up pending " << std::endl;
     while (!pending_queue.empty()) {
         player_id = pending_queue.front();
+        //std::cout << player_id << "" << std::endl;
         for (i = 0; i < players.size(); i++) {
             if (players[i].inner_id == player_id) {
                 break;
@@ -50,13 +52,14 @@ size_t GameState::next_datagram(std::string &buffer, sockaddr_storage &addr)
         if (i < players.size()) {
             break;
         }
+        pending.erase(pending_queue.front());
         pending_queue.pop();
         front_removed = true;
     }
     if (pending_queue.empty()) {
         return 0;
     }
-    //std::cerr << "Got here " << players[i].expected_no << std::endl;
+    //std::cerr << "Got here " << player_id << " " << players[i].expected_no << std::endl;
     if (front_removed || !head_in_progress) {
         head_in_progress = true;
         head_expected_no = players[i].expected_no;
@@ -65,6 +68,7 @@ size_t GameState::next_datagram(std::string &buffer, sockaddr_storage &addr)
     auto &hist = round.history();
     //std::cerr << "Got ist tot here " << head_expected_no << " " << indxs.size() << std::endl;
     if (head_expected_no >= indxs.size()) {
+        //std::cout << "Already satisfied"  << std::endl;
         return 0;
     }
     size_t it = head_expected_no;
@@ -76,7 +80,7 @@ size_t GameState::next_datagram(std::string &buffer, sockaddr_storage &addr)
     buffer = Event::serialize(round.get_game_id());
     buffer.insert(buffer.size(), &hist[(head_expected_no == 0)? 0 : indxs[head_expected_no - 1]], mes_size);
     addr = players[i].sockaddr;
-    //std::cerr << "Message to player number " << i << std::endl;
+    //std::cerr << "Message to player number " << i << " " << head_expected_no << std::endl;
     return it - head_expected_no;
 }
 
@@ -122,7 +126,7 @@ void GameState::disconnect_player(size_t id)
         std::swap(players[id], players[players.size() - 1]);
     }
     players.pop_back();
-    std::cerr << "Disconnected player" << std::endl;
+    //std::cerr << "Disconnected player" << std::endl;
 }
 
 void GameState::notify_player(Player &p)
@@ -150,7 +154,7 @@ void GameState::connect_player(
         return;
     }
     players.push_back(Player{e, addr, rec_time, inner_counter++});
-    std::cerr << "Connected new player" << std::endl;
+    //std::cerr << "Connected new player" << std::endl;
     notify_player(players[players.size() - 1]);
 }
 
@@ -169,7 +173,7 @@ void GameState::connect_or_update_player(
             connect_player(e, addr, rec_time);
             return;
         } else {
-            std::cerr << "Message from player number " << i << std::endl;
+            //std::cerr << "Message from player number " << i << std::endl;
             p.last_contact = rec_time;
             p.expected_no = e.next_expected_event_no;
             p.last_turn_direction = e.turn_direction;
@@ -193,7 +197,7 @@ void GameState::update_game_state_on_player_message()
     //with the conditions above it means some round has finished recently
     if (std::get<0>(round.is_active())) {
         if (round.game_over_raised) {
-            std::cerr << "Prepare for new round" << std::endl;
+            //std::cerr << "Prepare for new round" << std::endl;
             round.game_over_raised = false;
             for (auto &p : players) {
                 p.pressed_arrow = false;
@@ -211,7 +215,7 @@ void GameState::update_game_state_on_player_message()
         }
     }
     if (ready >= REQUIRED_PLAYERS && eager == ready) {
-        std::cerr << "Starting new game" << std::endl;
+        //std::cerr << "Starting new game" << std::endl;
         start_new_round();
     }
 }
@@ -306,7 +310,7 @@ void Round::event(Event::SerializableEvent &e)
     std::string s = Event::serialize(length, event_no, es);
     uint32_t crc = crc32(0, reinterpret_cast<unsigned char *>(&s[0]), s.length());
     s.resize(s.length() + 4);
-    *reinterpret_cast<uint32_t *>(&s[s.length() - 4]) = crc;
+    *reinterpret_cast<uint32_t *>(&s[s.length() - 4]) = bswap(crc);
     events_history.insert(events_history.end(), s.begin(), s.end());
     events_positions.push_back(events_history.size());
 }

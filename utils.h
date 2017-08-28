@@ -21,6 +21,7 @@
 uint32_t const NANOSPERS = 1000000000;
 size_t const MAX_FROM_SERVER_DATAGRAM_SIZE = 512;
 size_t const MAX_FROM_CLIENT_DATAGRAM_SIZE = 77;
+uint32_t const REQUIRED_PLAYERS = 2;
 
 bool operator==(sockaddr_storage const &a1, sockaddr_storage const &a2);
 
